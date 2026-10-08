@@ -17,6 +17,12 @@ own code and documentation; it grants no rights to those names or marks.
 
 Third-party material
 --------------------
+The optional Digimon habitat uses externally supplied Pixel Digivolve Regular
+by Neale Davidson / Pixel Sagas (Copyright 2015, All Rights Reserved). Original
+font and generated glyphs are not distributed in this repository. Personal use
+and software embedding follow the author's Font License.txt; commercial use
+needs the author's license. See THIRD_PARTY_NOTICES.md for details and source.
+
 The MIT license above covers only the code and documentation written for this
 project. Except as noted below, third-party code is not included in this
 repository; it is fetched at build or install time and keeps its own license:

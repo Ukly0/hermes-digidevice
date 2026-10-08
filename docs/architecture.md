@@ -47,6 +47,30 @@ As a result the core has no locks and every test is deterministic.
 
 ### Rendering
 
+The opt-in 466x466 round [habitat demo](plan-digimon.md) adds a dedicated
+`Habitat` renderer/state machine in the portable core. It uses the full circular
+panel for scenery, keeps cards/buttons inside it, and flushes only the moving
+row band unless input invalidates the full view. `TouchGestures` routes its
+taps to native hit-testing instead of TALK. All other modes retain the existing
+UI and voice handling. Private artwork is an optional generated translation
+unit; default builds use original geometric stand-ins. The browser viewer is
+a headless simulator host, not a second scene implementation.
+
+Habitat movement uses 50 ms fixed-point updates, deterministic local targets,
+checked routes, acceleration/braking, predictive oval ground clearance and
+stable facing. Sand/circle bounds remain hard limits. Sprite gait follows travelled
+distance with a short visual hold; depth sorting and alpha-aware touch picking use the same ground order.
+Private poses preserve a common source-canvas registration per resident.
+
+The habitat demo has bounded per-resident typed inboxes with native cue layout,
+three-second NEW markers, FIFO review and explicitly armed YES/NO responses.
+These are local demo events, not Hermes approvals or delivery acknowledgements.
+
+Ambient sea/foam uses cropped, masked flash overlays at a slower cadence than
+movement. The sky-only texture band is restored/flushed separately on slow drift
+changes; buildings, vegetation and walking ground remain fixed. A small source-X
+cache and direct RGB565 writes avoid per-pixel division and any second framebuffer.
+
 - The port owns a full RGB565 framebuffer, in PSRAM on the ESP32.
 - `Ui::render()` hashes the inputs of each band and redraws only the bands that changed, flushing them as full-width rows (contiguous memory, so a panel driver can DMA them).
 - Animations (spinner, level meter, speaking bars) live only in the 35-pixel header band, so a 10 fps animation pushes about 22 KB/s over SPI.

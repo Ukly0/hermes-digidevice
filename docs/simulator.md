@@ -22,6 +22,12 @@ New here? Follow [Try the simulator](desktop.md) for installation and your first
 
 A bug reproduced in the simulator is therefore a bug in the firmware.
 
+The [Digimon habitat mode and browser viewer](plan-digimon.md) run the same
+portable C++ core on `sim-466x466-round`. The browser displays the native
+framebuffer and forwards touch samples; it does not draw or animate the scene.
+The mode is opt-in (`console habitat on`) and uses local demo notices, not
+live Hermes profile data. Builds without private assets use geometric stand-ins.
+
 ## Running
 
 The main window shows the device and the current conversation. **Developer tools** replaces the conversation panel with sensors, device actions, the serial console, and logs. Choose **Back to conversation** to return.
@@ -107,7 +113,7 @@ Script commands, one per line:
 | `screenshot <file.png>` | Save the screen |
 | `expect <text>` | Fail unless the last reply contains `<text>` |
 
-Screens are `boot`, `offline`, `connecting`, `pairing`, `ready`, `listening`, `thinking`, `responding`, `card`, `image`, `prompt`, `updating`, `settings`, `setup` and `error`. The `setup` screen belongs to the ESP32 phone-setup flow; the simulator does not start a Wi-Fi access point.
+Screens are `boot`, `offline`, `connecting`, `pairing`, `ready`, `listening`, `thinking`, `responding`, `card`, `image`, `prompt`, `updating`, `settings`, `setup`, `error` and the opt-in round-demo `habitat`. The `setup` screen belongs to the ESP32 phone-setup flow; the simulator does not start a Wi-Fi access point.
 
 ## Using it from Python
 

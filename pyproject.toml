@@ -25,8 +25,8 @@ display = ["pygame>=2.6,<3"]
 mqtt = ["paho-mqtt>=2.1,<3"]
 # Serial provisioning and console for real boards.
 serial = ["pyserial>=3.5,<4"]
-# Image delivery in the development server.
-images = ["Pillow>=10,<13"]
+# Image delivery and timezone data for the habitat viewer on all host platforms.
+images = ["Pillow>=10,<13", "tzdata>=2026.1"]
 dev = ["pytest>=8,<10", "gpiozero>=2.0.1,<3"]
 
 [project.scripts]
@@ -39,6 +39,7 @@ package-dir = { "hermes_gadget" = "python/hermes_gadget", "hermes_gadget_plugin"
 packages = ["hermes_gadget", "hermes_gadget.sim", "hermes_gadget.linux", "hermes_gadget_plugin"]
 
 [tool.setuptools.package-data]
+hermes_gadget = ["habitat.html"]
 hermes_gadget_plugin = ["plugin.yaml"]
 
 [tool.pytest.ini_options]

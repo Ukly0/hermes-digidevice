@@ -5,6 +5,7 @@
 //   hold elsewhere     TALK, held for as long as the finger stays down
 //   quick tap          a TALK press and release (answers "yes" to a question)
 //   swipe down         a CANCEL press and release (discard, close, stop, "no")
+//   habitat demo       short taps select/read/back; swipe down returns home
 //
 // Feed it raw touch samples; it calls App::on_button. Portable and clock-free,
 // so the simulator and the tests drive it exactly like the firmware does.
@@ -38,7 +39,7 @@ class TouchGestures {
   void tick(uint32_t now_ms);
 
  private:
-  enum class State : uint8_t { Idle, Pending, Settings, Talk, Swipe, Ignored };
+  enum class State : uint8_t { Idle, Pending, Settings, Talk, Swipe, Ignored, Habitat };
   void press(Button b);
   void release(Button b);
 

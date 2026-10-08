@@ -23,6 +23,24 @@ The dependencies below keep their own licenses and are downloaded when you build
 
 ## Artwork
 
+The optional Digimon habitat prototype loads user-supplied artwork from an
+external directory. No Digimon artwork or generated previews are distributed
+in this repository or its packages. Digimon names and character artwork are
+third-party intellectual property; the project's MIT license grants no rights
+to them. Users must have permission for their intended use. Local prototype
+behavior is original code, not recovered game logic.
+
+The optional habitat font is **Pixel Digivolve Regular**, Neale Davidson /
+Pixel Sagas, copyright 2015, All Rights Reserved, from
+<https://www.dafont.com/es/pixel-digivolve.font>. The downloaded author's
+`Font License.txt` permits personal, non-commercial use and software embedding;
+commercial use requires a separate license/fee, and direct font downloads or
+commercial font sale are prohibited. The website's "100% Free" badge is not
+an unrestricted redistribution license. Original OTF, author license and
+generated glyph data are kept externally; none is included in this public
+repository or MIT distribution. The developer must check permissions before
+shipping a commercial device or publishing generated font assets.
+
 The mascot artwork, and the logo and device bitmaps drawn from it, come from [Hermes Agent](https://github.com/NousResearch/hermes-agent) (MIT, © 2025 Nous Research); see [assets/mascot](assets/mascot) and [NOTICE](NOTICE).
 
 ## Adapted display initialization tables

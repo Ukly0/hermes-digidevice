@@ -183,7 +183,10 @@ void App::begin() {
     add_action(std::move(bl));
   }
 
-  if (hal_.display) ui_ = std::make_unique<Ui>(*hal_.display);
+  if (hal_.display) {
+    ui_ = std::make_unique<Ui>(*hal_.display);
+    habitat_ = std::make_unique<Habitat>(*hal_.display);
+  }
   phase_ = Phase::Boot;
   phase_since_ = now();
   boot_until_ = now() + kBootScreenMs;
@@ -727,6 +730,19 @@ void App::h_error(const json::Value& m) {
 // --------------------------------------------------------------------------
 // Input
 
+void App::on_habitat_tap(int x, int y) {
+  if (!habitat_showing() || !habitat_) return;
+  wake_display();
+  habitat_->tap(x, y);
+  update_model();
+}
+
+void App::habitat_back() {
+  if (!habitat_showing() || !habitat_) return;
+  habitat_->back();
+  update_model();
+}
+
 void App::on_button(Button button, bool pressed) {
   if (!wifi_setup_text_.empty()) {
     if (button == Button::Cancel && !pressed) close_wifi_setup();
@@ -736,6 +752,10 @@ void App::on_button(Button button, bool pressed) {
   if (pressed && wake_display()) { wake_buttons_ |= bit; return; }
   if (wake_buttons_ & bit) {
     if (!pressed) wake_buttons_ &= static_cast<uint8_t>(~bit);
+    return;
+  }
+  if (habitat_showing()) {
+    if (button == Button::Cancel && !pressed) habitat_back();
     return;
   }
   if (button == Button::Talk) {
@@ -1226,6 +1246,7 @@ void App::h_ota_abort(const json::Value&) {
 
 void App::tick() {
   const uint32_t t = now();
+  if (habitat_ && habitat_->tick(t) && habitat_showing() && !display_sleeping_) habitat_->render();
   power_tick();
   settings_tick();
 
@@ -1335,6 +1356,8 @@ void App::tick() {
 
 void App::update_model() {
   UiModel& m = model_;
+  const bool was_habitat = m.screen == Screen::Habitat;
+  if (was_habitat && ui_) ui_->invalidate();
   m.title = name_;
   m.code.clear();
   m.detail.clear();
@@ -1373,6 +1396,19 @@ void App::update_model() {
   }
 
   const std::string talk = profile_.talk_label;
+  const bool habitat_phase = phase_ == Phase::NoNetwork ||
+      (phase_ == Phase::Boot && !network_up_) || (phase_ == Phase::Online && paired_);
+  if (habitat_phase && habitat_ && habitat_->enabled() && mode_ == Mode::Idle &&
+      overlay_ == Overlay::None && prompt_id_.empty() && !ota_busy()) {
+    m.screen = Screen::Habitat;
+    m.headline = "Net Ocean";
+    m.detail = "Local firmware demo";
+    m.hint = "Tap a resident";
+    habitat_->connection(m.link == Link::Online && paired_);
+    if (!was_habitat) habitat_->invalidate();
+    if (!display_sleeping_) habitat_->render();
+    return;
+  }
   if (phase_ == Phase::Boot) {
     m.screen = Screen::Boot;
     m.hero = true;
@@ -1580,12 +1616,66 @@ std::string App::console(std::string_view raw) {
   std::string cmd = line.substr(0, sp);
   std::string rest = sp == std::string::npos ? std::string() : trim(std::string_view(line).substr(sp + 1));
 
+  if (cmd == "habitat") {
+    if (!habitat_) return "@error habitat needs a display";
+    if (rest == "status") return "@habitat " + habitat_->status().dump();
+    if (rest.compare(0, 6, "clock ") == 0) {
+      json::Value clock;
+      if (!json::parse(rest.substr(6), clock) || !clock.is_object() || clock.size() != 2 ||
+          !clock["epoch"].is_number() || !clock["offset"].is_number() ||
+          clock["epoch"].as_number() < 946684800.0 || clock["epoch"].as_number() >= 4102444800.0 ||
+          clock["offset"].as_number() < -840 || clock["offset"].as_number() > 840 ||
+          clock["epoch"].as_number() != clock["epoch"].as_int() ||
+          clock["offset"].as_number() != clock["offset"].as_int() ||
+          !habitat_->clock(clock["epoch"].as_int(), static_cast<int>(clock["offset"].as_int()), now()))
+        return "@error clock requires integer epoch (2000..2099) and offset minutes (-840..840)";
+      update_model();
+      return "@ok clock";
+    }
+    if (rest == "on") {
+      auto info = hal_.display->info();
+      if (!info.round || info.width != 466 || info.height != 466)
+        return "@error habitat demo targets a 466x466 round display";
+      if (network_up_ && (phase_ != Phase::Online || !paired_))
+        return "@error finish connecting and pairing before enabling habitat";
+      if (ota_busy() || !prompt_id_.empty() || mode_ != Mode::Idle || overlay_ != Overlay::None ||
+          talk_held_ || cancel_held_)
+        return "@error habitat unavailable during an active interaction";
+      wake_display();
+      habitat_->enable(now());
+    } else if (rest == "off") habitat_->disable();
+    else if (!habitat_->enabled()) return "@error habitat is not enabled";
+    else if (rest == "pause") habitat_->pause();
+    else if (rest == "motion") habitat_->motion();
+    else if (rest == "read") {
+      if (!habitat_->read()) return "@error question needs an explicit yes or no";
+    }
+    else if (rest == "yes" || rest == "no") {
+      if (!habitat_->answer(rest == "yes")) return "@error no armed habitat question";
+    }
+    else if (rest == "details") habitat_->details();
+    else if (rest == "back") habitat_->back();
+    else if (rest.compare(0, 7, "notify ") == 0) {
+      auto args = rest.substr(7);
+      auto split = args.find(' ');
+      auto name = args.substr(0, split);
+      auto token = split == std::string::npos ? std::string("info") : trim(std::string_view(args).substr(split + 1));
+      auto kind = Habitat::NoticeKind::Info;
+      if (token == "question") kind = Habitat::NoticeKind::Question;
+      else if (token == "error") kind = Habitat::NoticeKind::Error;
+      else if (token != "info") return "@error unknown notification kind";
+      if (!habitat_->notify(name, kind)) return "@error unknown resident or full inbox";
+    } else return "@error habitat on|off|status|notify <name> [info|question|error]|pause|motion|read|back|details|yes|no";
+    update_model();
+    return "@ok habitat";
+  }
+
   if (cmd == "help") {
     std::string keys;
     for (const char* k : kSettingKeys) keys += std::string(" ") + k;
     for (const auto& k : profile_.extra_settings) keys += " " + k;
     return "@help commands: status | diag [log] | get <key> | set <key> <value> | say <text> | talk | release | "
-           "cancel | new-session | settings [close] | wifi-setup [close] | yes | no | reconnect | forget-key | factory-reset   keys:" + keys;
+           "cancel | new-session | settings [close] | wifi-setup [close] | yes | no | reconnect | forget-key | factory-reset | habitat on|off|status|notify <name> [info|question|error]|pause|motion|read|back|details|yes|no   keys:" + keys;
   }
   if (cmd == "status") return "@status " + status_json();
   if (cmd == "wifi-setup") {

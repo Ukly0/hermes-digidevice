@@ -21,6 +21,9 @@ void TouchGestures::tick(uint32_t now_ms) {
 void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
   if (!touching) {
     switch (state_) {
+      case State::Habitat:
+        if (now_ms - t0_ <= 500) app_.on_habitat_tap(x0_, y0_);
+        break;
       case State::Pending:  // a quick tap
         press(Button::Talk);
         release(Button::Talk);
@@ -35,7 +38,8 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
 
   if (state_ == State::Idle) {
     if (app_.wake_display()) { state_ = State::Ignored; return; }
-    state_ = app_.settings_title_hit(x, y) ? State::Settings : State::Pending;
+    state_ = app_.habitat_showing() ? State::Habitat :
+             app_.settings_title_hit(x, y) ? State::Settings : State::Pending;
     x0_ = x;
     y0_ = y;
     t0_ = now_ms;
@@ -43,6 +47,15 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
   }
 
   const int dx = x - x0_, dy = y - y0_;
+  if (state_ == State::Habitat) {
+    if (dy >= cfg_.swipe_px && std::abs(dx) < dy) {
+      app_.habitat_back();
+      state_ = State::Ignored;
+    } else if (std::abs(dx) > cfg_.slop_px || std::abs(dy) > cfg_.slop_px) {
+      state_ = State::Ignored;
+    }
+    return;
+  }
   const bool swiped_down = (cfg_.swipe_cancel || app_.settings_open() || app_.wifi_setup_open()) &&
                           dy >= cfg_.swipe_px && std::abs(dx) < dy;
   switch (state_) {

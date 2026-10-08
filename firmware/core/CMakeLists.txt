@@ -6,6 +6,7 @@ set(HG_CORE_SOURCES
     src/canvas.cpp
     src/crypto.cpp
     src/font5x7.cpp
+    src/habitat.cpp
     src/json.cpp
     src/mascot_data.cpp
     src/protocol.cpp
@@ -14,6 +15,16 @@ set(HG_CORE_SOURCES
     src/ui.cpp
     src/vad.cpp
 )
+
+set(HG_HABITAT_ASSETS_SOURCE "" CACHE FILEPATH "Generated private habitat artwork; empty uses geometric stand-ins")
+if(HG_HABITAT_ASSETS_SOURCE)
+  if(NOT EXISTS "${HG_HABITAT_ASSETS_SOURCE}")
+    message(FATAL_ERROR "HG_HABITAT_ASSETS_SOURCE does not exist: ${HG_HABITAT_ASSETS_SOURCE}")
+  endif()
+  list(APPEND HG_CORE_SOURCES "${HG_HABITAT_ASSETS_SOURCE}")
+else()
+  list(APPEND HG_CORE_SOURCES src/habitat_assets_stub.cpp)
+endif()
 
 if(ESP_PLATFORM)
   idf_component_register(SRCS ${HG_CORE_SOURCES} INCLUDE_DIRS include)

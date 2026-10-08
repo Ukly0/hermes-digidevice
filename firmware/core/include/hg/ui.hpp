@@ -32,6 +32,7 @@ enum class Screen : uint8_t {
   Updating,  // installing a firmware update
   Settings,
   Setup,
+  Habitat,
 };
 
 enum class Link : uint8_t { Offline, Network, Connecting, Online };

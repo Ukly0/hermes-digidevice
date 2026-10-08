@@ -16,6 +16,7 @@
 
 #include "hg/crypto.hpp"
 #include "hg/hal.hpp"
+#include "hg/habitat.hpp"
 #include "hg/json.hpp"
 #include "hg/ui.hpp"
 #include "hg/vad.hpp"
@@ -76,6 +77,9 @@ class App {
   void on_transport_closed(std::string_view reason);
   void on_button(Button button, bool pressed);
   void on_mic_samples(const int16_t* samples, size_t count);
+  bool habitat_showing() const { return model_.screen == Screen::Habitat; }
+  void on_habitat_tap(int x, int y);
+  void habitat_back();
 
   // --- device features ------------------------------------------------------
   // Sends typed text as a user message (keyboards, simulator, console).
@@ -212,6 +216,7 @@ class App {
   Hal& hal_;
   DeviceProfile profile_;
   std::unique_ptr<Ui> ui_;
+  std::unique_ptr<Habitat> habitat_;
   UiModel model_;
 
   // identity & settings

@@ -1,4 +1,6 @@
 // Drives hg::App through a fake HAL the way a Hermes gateway would.
+#include <algorithm>
+#include <cstdlib>
 #include <deque>
 #include <map>
 #include <string>
@@ -7,6 +9,7 @@
 #include "check.hpp"
 #include "hg/app.hpp"
 #include "hg/crypto.hpp"
+#include "hg/habitat_assets.hpp"
 #include "hg/protocol.hpp"
 #include "hg/setup.hpp"
 #include "hg/touch.hpp"
@@ -1225,4 +1228,455 @@ TEST("Wi-Fi setup: opening from USB releases an active talk button") {
   CHECK(!r.app.wifi_setup_open());
   r.advance(30000);
   CHECK_EQ(r.fake.brightness, 0);
+}
+
+TEST("habitat: opt-in, core-driven round framebuffer, normal screen restored") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.app.begin();
+  r.advance(1000);
+  CHECK_EQ(r.app.screen(), hg::Screen::Offline);
+  CHECK_EQ(r.app.console("habitat on"), "@ok habitat");
+  CHECK_EQ(r.app.screen(), hg::Screen::Habitat);
+  const auto* background = hg::habitat_assets::background();
+  uint16_t top = background ? background->pixels[(20 * background->height / 466) * background->width + background->width / 2]
+                            : hg::rgb565(133, 208, 215);
+  uint16_t bottom = background ? background->pixels[(450 * background->height / 466) * background->width + background->width / 2]
+                               : hg::rgb565(80, 178, 211);
+  // Scenery reaches both poles of the circular glass, outside the HUD overlays.
+  CHECK_EQ(r.fake.fb[20 * 466 + 233], top);
+  CHECK_EQ(r.fake.fb[450 * 466 + 233], bottom);
+  auto pixels = r.fake.fb;
+  r.advance(3000);
+  CHECK(r.fake.fb != pixels);
+  CHECK(!r.fake.mic_on);
+  CHECK_EQ(r.app.console("habitat off"), "@ok habitat");
+  CHECK_EQ(r.app.screen(), hg::Screen::Offline);
+}
+
+TEST("habitat: touch opens native card without reading, card buttons and swipe work") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.app.begin();
+  r.app.console("habitat on");
+  r.app.console("habitat notify palmon");
+  hg::TouchGestures touch(r.app);
+  Value state;
+  CHECK(hg::json::parse(r.app.console("habitat status").substr(9), state));
+  int x = static_cast<int>(state["residents"].at(4)["x"].as_int());
+  int y = static_cast<int>(state["residents"].at(4)["y"].as_int());
+  touch.update(true, x, y, r.fake.clock);
+  r.advance(200);
+  touch.tick(r.fake.clock);  // A habitat hold must never press TALK.
+  CHECK(!r.fake.mic_on);
+  touch.update(false, x, y, r.fake.clock);
+  CHECK(hg::json::parse(r.app.console("habitat status").substr(9), state));
+  CHECK_EQ(state["selected"].as_int(), 4);
+  CHECK_EQ(state["residents"].at(4)["pending"].as_int(), 1);
+  touch.update(true, 310, 414, r.fake.clock);
+  touch.update(false, 310, 414, r.fake.clock);
+  CHECK(hg::json::parse(r.app.console("habitat status").substr(9), state));
+  CHECK_EQ(state["residents"].at(4)["pending"].as_int(), 0);
+  int held_x = static_cast<int>(state["residents"].at(4)["x"].as_int());
+  int held_y = static_cast<int>(state["residents"].at(4)["feet"].as_int());
+  r.advance(500);  // Reading the notice does not move the selected card's resident.
+  CHECK(hg::json::parse(r.app.console("habitat status").substr(9), state));
+  CHECK_EQ(state["residents"].at(4)["x"].as_int(), held_x);
+  CHECK_EQ(state["residents"].at(4)["feet"].as_int(), held_y);
+  touch.update(true, 220, 320, r.fake.clock);
+  touch.update(true, 220, 390, r.fake.clock + 10);
+  touch.update(false, 220, 390, r.fake.clock + 20);
+  CHECK(hg::json::parse(r.app.console("habitat status").substr(9), state));
+  CHECK_EQ(state["selected"].as_int(), -1);
+}
+
+TEST("habitat: deterministic tick, freeze and partial redraw") {
+  FakeHal a, b;
+  a.make_round(466);
+  b.make_round(466);
+  hg::Habitat ha(a), hb(b);
+  ha.enable(0); hb.enable(0);
+  ha.render(); hb.render();
+  CHECK_EQ(a.flushed_rows, 466);
+  for (uint32_t time = 100; time <= 3000; time += 100) {
+    ha.tick(time); hb.tick(time);
+    ha.render(); hb.invalidate(); hb.render();
+    CHECK(a.fb == b.fb);  // Partial updates must equal a full redraw.
+  }
+  CHECK_EQ(ha.status().dump(), hb.status().dump());
+  CHECK(a.fb == b.fb);
+  int before = a.flushed_rows;
+  ha.tick(3100); ha.render();
+  CHECK(a.flushed_rows - before < 466);
+  ha.pause(); ha.render();
+  auto paused = ha.status().dump();
+  ha.tick(5000);
+  CHECK_EQ(ha.status().dump(), paused);
+  ha.pause(); ha.motion();
+  auto positions = ha.status()["residents"].dump();
+  ha.tick(5100);
+  CHECK_EQ(ha.status()["residents"].dump(), positions);
+  for (uint32_t time = 5200; time < 30000; time += 100) ha.tick(time);
+  CHECK(ha.status()["residents"].at(4)["pending"].as_int() > 0);
+  CHECK(!ha.notify("not-a-resident"));
+}
+
+TEST("habitat: other panels remain on the normal UI") {
+  Rig r;
+  r.app.begin();
+  CHECK(r.app.console("habitat on").find("@error") == 0);
+  CHECK(r.app.screen() != hg::Screen::Habitat);
+}
+
+TEST("habitat: never hides pairing") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.bring_online(false);
+  CHECK(r.app.console("habitat on").find("@error") == 0);
+  CHECK(r.app.screen() != hg::Screen::Habitat);
+}
+
+TEST("habitat: free walking stays on sand, separated, ordered and never teleports") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  int min_x[8], max_x[8], min_y[8], max_y[8], last_x[8], last_y[8];
+  auto initial = habitat.status();
+  for (size_t i = 0; i < 8; ++i) {
+    min_x[i] = max_x[i] = last_x[i] = static_cast<int>(initial["residents"].at(i)["x"].as_int());
+    min_y[i] = max_y[i] = last_y[i] = static_cast<int>(initial["residents"].at(i)["feet"].as_int());
+  }
+  for (uint32_t time = 100; time <= 180000; time += 100) {
+    habitat.tick(time);
+    auto state = habitat.status();
+    for (size_t i = 0; i < 8; ++i) {
+      const auto& r = state["residents"].at(i);
+      int x = static_cast<int>(r["x"].as_int()), y = static_cast<int>(r["feet"].as_int());
+      CHECK(y >= 270 && y <= 350);
+      CHECK(habitat.walkable(i, x, y));
+      CHECK(std::abs(x - last_x[i]) <= 2 && std::abs(y - last_y[i]) <= 2);
+      min_x[i] = std::min(min_x[i], x); max_x[i] = std::max(max_x[i], x);
+      min_y[i] = std::min(min_y[i], y); max_y[i] = std::max(max_y[i], y);
+      last_x[i] = x; last_y[i] = y;
+      if (r["walking"].as_bool()) {
+        int p = static_cast<int>(r["pose"].as_int());
+        CHECK(i >= 6 ? (p == 4 || p == 5) : (p == 6 || p == 7));
+      }
+      for (size_t j = 0; j < i; ++j) {
+        int dx = x - static_cast<int>(state["residents"].at(j)["x"].as_int());
+        int dy = y - static_cast<int>(state["residents"].at(j)["feet"].as_int());
+        // Ground footprint is 50x34; billboards can overlap at different depths.
+        // Leave 2px tolerance only for rounding exact Q8 support positions.
+        CHECK(dx * dx * 32 * 32 + dy * dy * 48 * 48 >= 48 * 48 * 32 * 32);
+      }
+      if (i) {
+        auto previous = state["draw_order"].at(i - 1).as_int();
+        auto current = state["draw_order"].at(i).as_int();
+        CHECK(state["residents"].at(previous)["feet"].as_int() <= state["residents"].at(current)["feet"].as_int());
+      }
+    }
+  }
+  for (size_t i = 0; i < 8; ++i) if (i != 4) {  // Palmon waits for its demo notice.
+    CHECK(max_x[i] - min_x[i] > 10);
+    CHECK(max_y[i] - min_y[i] > 5);
+  }
+  auto state = habitat.status();
+  int total = 0;
+  for (const auto& resident : state["residents"].elements()) total += resident["pending"].as_int();
+  CHECK_EQ(total, 1);
+  CHECK_EQ(state["residents"].at(4)["pending"].as_int(), 1);
+}
+
+TEST("habitat: 20Hz movement has calm facing and bounded velocities") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  int facing[8], last_change[8], changes = 0, gait_start[8] = {};
+  bool walking[8] = {}, was_walk[8] = {};
+  auto initial = habitat.status();
+  for (size_t i = 0; i < 8; ++i) {
+    facing[i] = static_cast<int>(initial["residents"].at(i)["direction"].as_int());
+    last_change[i] = -10000;
+  }
+  for (uint32_t time = 50; time <= 180000; time += 50) {
+    habitat.tick(time);
+    auto state = habitat.status();
+    CHECK_EQ(state["frame"].as_int(), time / 50);
+    for (size_t i = 0; i < 8; ++i) {
+      const auto& r = state["residents"].at(i);
+      int direction = static_cast<int>(r["direction"].as_int());
+      if (direction != facing[i]) {
+        CHECK(static_cast<int>(time) - last_change[i] >= 800);
+        last_change[i] = static_cast<int>(time);
+        facing[i] = direction;
+        ++changes;
+      }
+      CHECK(std::abs(r["vx"].as_int()) <= 224);
+      CHECK(std::abs(r["vy"].as_int()) <= 224);
+      bool is_walk = r["mode"].as_string() == "walk";
+      bool gait = r["walking"].as_bool();
+      if (is_walk && was_walk[i] && walking[i] && !gait)
+        CHECK(static_cast<int>(time) - gait_start[i] >= 250);
+      if (gait && !walking[i]) gait_start[i] = static_cast<int>(time);
+      walking[i] = gait;
+      was_walk[i] = is_walk;
+    }
+  }
+  CHECK(changes < 300);  // Regression: the old demo flipped over 2,000 times.
+}
+
+TEST("habitat: departure accelerates instead of jumping to cruising speed") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  habitat.tick(50);
+  auto state = habitat.status();
+  bool started = false;
+  for (const auto& r : state["residents"].elements()) {
+    CHECK(std::abs(r["vx"].as_int()) <= 32);
+    CHECK(std::abs(r["vy"].as_int()) <= 32);
+    started |= r["moving"].as_bool();
+  }
+  CHECK(started);
+}
+
+TEST("habitat: typed inbox preserves requests, details and explicit responses") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  using Kind = hg::Habitat::NoticeKind;
+  CHECK(habitat.notify("palmon", Kind::Info));
+  CHECK(habitat.notify("palmon", Kind::Question));
+  CHECK(habitat.notify("palmon", Kind::Error));
+  auto state = habitat.status();
+  auto palmon = state["residents"].at(4);
+  CHECK_EQ(palmon["pending"].as_int(), 3);
+  CHECK(palmon["fresh"].as_bool());
+  // Tap the bubble itself, not an HTML profile button.
+  habitat.tap(static_cast<int>(palmon["cue_x"].as_int()), static_cast<int>(palmon["cue_y"].as_int()));
+  CHECK_EQ(habitat.status()["selected"].as_int(), 4);
+  CHECK_EQ(habitat.status()["residents"].at(4)["pending"].as_int(), 3);
+  habitat.details();
+  CHECK(habitat.status()["details"].as_bool());
+  CHECK(habitat.read());
+  CHECK_EQ(habitat.status()["residents"].at(4)["kind"].as_string(), "question");
+  CHECK(!habitat.status()["details"].as_bool());
+  CHECK(!habitat.read());
+  CHECK(!habitat.answer(true));
+  for (uint32_t time = 50; time <= 400; time += 50) habitat.tick(time);
+  CHECK(habitat.status()["question_ready"].as_bool());
+  CHECK(habitat.answer(false));
+  palmon = habitat.status()["residents"].at(4);
+  CHECK_EQ(palmon["kind"].as_string(), "error");
+  CHECK_EQ(palmon["last_action"].as_string(), "no");
+  CHECK_EQ(palmon["last_id"].as_int(), 2);
+  CHECK(habitat.read());
+  palmon = habitat.status()["residents"].at(4);
+  CHECK_EQ(palmon["pending"].as_int(), 0);
+  CHECK_EQ(palmon["last_action"].as_string(), "read");
+  CHECK_EQ(palmon["last_id"].as_int(), 3);
+  CHECK(!palmon["fresh"].as_bool());
+}
+
+TEST("habitat: native question buttons debounce consent even while paused") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  CHECK(habitat.notify("biyomon", hg::Habitat::NoticeKind::Question));
+  auto bird = habitat.status()["residents"].at(2);
+  habitat.tap(static_cast<int>(bird["cue_x"].as_int()), static_cast<int>(bird["cue_y"].as_int()));
+  habitat.pause();
+  habitat.tap(327, 403);  // YES before the user has had time to see the question.
+  CHECK_EQ(habitat.status()["residents"].at(2)["pending"].as_int(), 1);
+  habitat.tick(400);
+  CHECK(habitat.status()["question_ready"].as_bool());
+  CHECK_EQ(habitat.status()["frame"].as_int(), 0);
+  habitat.tap(233, 403);  // Native NO button.
+  CHECK_EQ(habitat.status()["residents"].at(2)["last_action"].as_string(), "no");
+  CHECK(habitat.notify("biyomon", hg::Habitat::NoticeKind::Question));
+  habitat.tap(327, 403);  // Cannot accidentally answer a newly arriving question.
+  CHECK_EQ(habitat.status()["residents"].at(2)["pending"].as_int(), 1);
+  habitat.tick(800);
+  habitat.tap(327, 403);
+  CHECK_EQ(habitat.status()["residents"].at(2)["pending"].as_int(), 0);
+  CHECK_EQ(habitat.status()["residents"].at(2)["last_action"].as_string(), "yes");
+}
+
+TEST("habitat: bounded queues reject overflow without losing existing notices") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  constexpr const char* names[] = {"agumon", "gabumon", "biyomon", "tentomon", "palmon", "gomamon", "patamon", "gatomon"};
+  for (const char* name : names) {
+    for (int i = 0; i < 8; ++i) CHECK(habitat.notify(name, hg::Habitat::NoticeKind::Error));
+    CHECK(!habitat.notify(name, hg::Habitat::NoticeKind::Question));
+  }
+  auto state = habitat.status();
+  CHECK(state.dump().size() + 9 < 4096);  // Fits the simulator console binding.
+  CHECK_EQ(state["residents"].at(0)["notice_id"].as_int(), 1);
+  auto first = state["residents"].at(0);
+  habitat.tap(static_cast<int>(first["cue_x"].as_int()), static_cast<int>(first["cue_y"].as_int()));
+  CHECK(habitat.read());
+  CHECK(habitat.notify("agumon", hg::Habitat::NoticeKind::Question));
+  CHECK_EQ(habitat.status()["residents"].at(0)["pending"].as_int(), 8);
+  CHECK_EQ(habitat.status()["residents"].at(0)["notice_id"].as_int(), 2);
+  CHECK_EQ(habitat.status()["residents"].at(0)["kind"].as_string(), "error");
+}
+
+TEST("habitat: NEW expires but the unread bubble remains") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  CHECK(habitat.notify("gatomon"));
+  for (uint32_t time = 50; time <= 3100; time += 50) habitat.tick(time);
+  auto cat = habitat.status()["residents"].at(7);
+  CHECK(!cat["fresh"].as_bool());
+  CHECK_EQ(cat["pending"].as_int(), 1);
+  habitat.tap(static_cast<int>(cat["cue_x"].as_int()), static_cast<int>(cat["cue_y"].as_int()));
+  CHECK_EQ(habitat.status()["selected"].as_int(), 7);
+  CHECK_EQ(habitat.status()["residents"].at(7)["pending"].as_int(), 1);
+}
+
+TEST("habitat: ambient layers change sky and sea but never the fixed scenery") {
+  if (!hg::habitat_assets::background() || !hg::habitat_assets::layer(hg::habitat_assets::Water)) return;
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  for (uint32_t time = 50; time <= 4000; time += 50) { habitat.tick(time); habitat.render(); }
+  auto before = fake.fb;
+  for (uint32_t time = 4050; time <= 5000; time += 50) { habitat.tick(time); habitat.render(); }
+  bool sky = false, water = false;
+  for (int y = 0; y < 466; ++y) for (int x = 0; x < 466; ++x) {
+    size_t p = static_cast<size_t>(y * 466 + x);
+    if (y < 73 && before[p] != fake.fb[p]) sky = true;
+    if (y >= 400 && before[p] != fake.fb[p]) water = true;
+    // This band contains the fixed trees/house, no sky, people or UI.
+    if (y >= 110 && y < 160) CHECK_EQ(before[p], fake.fb[p]);
+  }
+  CHECK(sky);
+  CHECK(water);
+  habitat.pause(); habitat.render();
+  auto paused = fake.fb;
+  habitat.tick(100000); habitat.render();
+  CHECK(fake.fb == paused);
+  habitat.pause(); habitat.motion(); habitat.render();
+  auto reduced = fake.fb;
+  for (uint32_t time = 100050; time <= 100500; time += 50) { habitat.tick(time); habitat.render(); }
+  CHECK(fake.fb == reduced);
+}
+
+TEST("habitat: fast movement and slow sky redraw equal complete recomposition") {
+  FakeHal a, b;
+  a.make_round(466); b.make_round(466);
+  hg::Habitat partial(a), full(b);
+  partial.enable(0); full.enable(0);
+  partial.render(); full.render();
+  for (uint32_t time = 50; time <= 18000; time += 50) {
+    partial.tick(time); full.tick(time);
+    partial.render(); full.invalidate(); full.render();
+    CHECK(a.fb == b.fb);
+  }
+  // Separate sky bands are cheaper than making every movement frame full-screen.
+  CHECK(a.flushed_rows < b.flushed_rows);
+}
+
+TEST("habitat: home clock is unknown until synced and continues while paused") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  habitat.enable(0);
+  CHECK(!habitat.status()["clock_known"].as_bool());
+  CHECK_EQ(habitat.status()["time"].as_string(), "--:--");
+  CHECK(habitat.clock(1791496799LL, 120, 0));  // Madrid 23:59:59, Thu 8 Oct 2026.
+  CHECK_EQ(habitat.status()["time"].as_string(), "23:59");
+  CHECK_EQ(habitat.status()["date"].as_string(), "JUE 08 OCT");
+  habitat.pause();
+  habitat.tick(2000);
+  CHECK_EQ(habitat.status()["time"].as_string(), "00:00");
+  CHECK_EQ(habitat.status()["date"].as_string(), "VIE 09 OCT");
+  CHECK_EQ(habitat.status()["frame"].as_int(), 0);
+  CHECK(!habitat.clock(-1, 120, 2000));
+  CHECK(!habitat.clock(1791496799LL, 841, 2000));
+  CHECK_EQ(habitat.status()["time"].as_string(), "00:00");
+}
+
+TEST("habitat: Gregorian dates and millis rollover work without a platform RTC") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat leap(fake);
+  leap.enable(0);
+  CHECK(leap.clock(1709164799LL, 0, 0));
+  leap.pause(); leap.tick(2000);
+  CHECK_EQ(leap.status()["date"].as_string(), "JUE 29 FEB");
+  hg::Habitat normal(fake);
+  normal.enable(0);
+  CHECK(normal.clock(1677628799LL, 0, 0));
+  normal.pause(); normal.tick(2000);
+  CHECK_EQ(normal.status()["date"].as_string(), "MIE 01 MAR");
+  hg::Habitat wrap(fake);
+  wrap.enable(UINT32_MAX - 2000);
+  CHECK(wrap.clock(1791496799LL, 120, UINT32_MAX - 2000));
+  wrap.pause(); wrap.tick(499);
+  CHECK_EQ(wrap.status()["time"].as_string(), "00:00");
+  CHECK_EQ(wrap.status()["date"].as_string(), "VIE 09 OCT");
+}
+
+TEST("habitat: validated clock command and connection dot reflect core state") {
+  Rig r(Rig::touch_profile());
+  r.fake.make_round(466);
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("habitat on"), "@ok habitat");
+  CHECK_EQ(r.app.console(R"(habitat clock {"epoch":1791496799,"offset":120})"), "@ok clock");
+  Value state;
+  CHECK(hg::json::parse(r.app.console("habitat status").substr(9), state));
+  CHECK(state["link_online"].as_bool());
+  CHECK_EQ(state["time"].as_string(), "23:59");
+  CHECK(r.app.console(R"(habitat clock {"epoch":1791496799,"offset":120.5})").find("@error") == 0);
+  CHECK(r.app.console(R"(habitat clock {"epoch":1e99,"offset":0})").find("@error") == 0);
+  r.app.on_network(false);
+  CHECK(hg::json::parse(r.app.console("habitat status").substr(9), state));
+  CHECK(!state["link_online"].as_bool());
+}
+
+TEST("habitat: minute-only home header updates equal a full redraw") {
+  FakeHal a, b;
+  a.make_round(466); b.make_round(466);
+  hg::Habitat partial(a), full(b);
+  partial.enable(0); full.enable(0);
+  CHECK(partial.clock(1791496799LL, 120, 0));
+  CHECK(full.clock(1791496799LL, 120, 0));
+  partial.render(); full.render();
+  for (uint32_t time = 50; time <= 2000; time += 50) {
+    partial.tick(time); full.tick(time);
+    partial.render(); full.invalidate(); full.render();
+    CHECK(a.fb == b.fb);
+  }
+  CHECK_EQ(partial.status()["time"].as_string(), "00:00");
+  CHECK(a.flushed_rows < b.flushed_rows);
+}
+
+TEST("habitat: clock sync while disabled uses current uptime and survives multiple wraps") {
+  FakeHal fake;
+  fake.make_round(466);
+  hg::Habitat habitat(fake);
+  CHECK(habitat.clock(1791496799LL, 120, 3600000));
+  habitat.enable(3600000);
+  CHECK_EQ(habitat.status()["time"].as_string(), "23:59");
+  CHECK_EQ(habitat.status()["date"].as_string(), "JUE 08 OCT");
+  habitat.disable();
+  // Keep ticking while disabled, crossing two full uint32 millisecond intervals.
+  constexpr uint32_t hour = 3600000;
+  for (uint64_t elapsed = hour; elapsed <= 2400ULL * hour; elapsed += hour)
+    habitat.tick(static_cast<uint32_t>(hour + elapsed));
+  habitat.enable(static_cast<uint32_t>(2401ULL * hour));
+  CHECK_EQ(habitat.status()["time"].as_string(), "23:59");
+  CHECK_EQ(habitat.status()["date"].as_string(), "SAB 16 ENE");
 }

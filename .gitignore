@@ -27,6 +27,9 @@ firmware/esp32/sdkconfig.old
 firmware/esp32/sdkconfig.*-*
 !firmware/esp32/sdkconfig.defaults
 
+# Local Digimon sprite mirror (Bandai/Toei artwork, not MIT-licensed)
+assets/digivice-25th/
+
 # Editors / OS
 .vscode/
 .idea/

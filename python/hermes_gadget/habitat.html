@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Net Ocean / Native Habitat</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #080f13; color: #e4ede8; }
+  * { box-sizing: border-box; }
+  body { max-width: 740px; margin: auto; padding: 28px 16px; text-align: center; }
+  .eyebrow { color: #8fb6ac; font: 11px monospace; letter-spacing: 1px; line-height: 1.8; }
+  h1 { font: 500 clamp(32px, 8vw, 52px) Georgia, serif; margin: 12px 0 24px; }
+  canvas { display: block; width: min(466px, 100%); height: auto; aspect-ratio: 1; margin: auto; border-radius: 50%; background: #000; box-shadow: 0 0 0 6px #23312f, 0 24px 60px #000; image-rendering: pixelated; touch-action: none; cursor: pointer; }
+  section { margin-top: 34px; }
+  h2 { font: 12px monospace; text-transform: uppercase; letter-spacing: 2px; color: #8fb6ac; }
+  .controls { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  button, select { max-width: 100%; font: inherit; color: inherit; background: #142321; border: 1px solid #3e5e55; padding: 10px 12px; border-radius: 4px; }
+  button { cursor: pointer; }
+  button:hover, button[aria-pressed="true"] { background: #2c4940; }
+  button:focus-visible, select:focus-visible { outline: 2px solid #e5ce8e; outline-offset: 3px; }
+  p, footer { font-size: 13px; line-height: 1.7; color: #a1b3ab; }
+  footer { border-top: 1px solid #283c35; margin-top: 24px; padding-top: 16px; }
+  #status { min-height: 1.7em; overflow-wrap: anywhere; }
+</style>
+<header><div class="eyebrow">ESP32-S3 / 466 x 466 / native firmware core</div><h1>Net Ocean</h1></header>
+<main>
+  <canvas id="world" width="466" height="466" aria-label="Native round display. Tap a resident to open its firmware profile card."></canvas>
+  <section aria-label="Simulation controls">
+    <h2>Simulation controls</h2>
+    <div class="controls"><button id="back">Back</button><button id="read" disabled>Mark selected as read</button><button id="details" disabled>Details</button><button id="yes" disabled>Accept (demo)</button><button id="no" disabled>Decline (demo)</button><button id="pause" aria-pressed="false">Pause</button><button id="motion" aria-pressed="false">Reduced motion</button></div>
+    <div class="controls"><select id="resident" aria-label="Demo notice recipient"><option>agumon</option><option>gabumon</option><option>biyomon</option><option>tentomon</option><option selected>palmon</option><option>gomamon</option><option>patamon</option><option>gatomon</option></select><select id="kind" aria-label="Demo notification type"><option value="info">Information</option><option value="question">Needs reply</option><option value="error">Incident</option></select><button id="notify">Send demo notice</button></div>
+    <p id="status" role="status">Connecting to native framebuffer...</p>
+  </section>
+</main>
+<footer>Host simulation, not a connected ESP32-S3 or hardware verification. The firmware core owns the display, profile cards, touch, animation and demo notices. The browser only forwards input and displays pixels. No live Hermes profiles, inboxes or gateways are connected.</footer>
+<script>
+const world = document.querySelector('#world'), context = world.getContext('2d');
+const status = document.querySelector('#status');
+context.imageSmoothingEnabled = false;
+let queue = Promise.resolve(), pointer = null, lastPoint = {x: 0, y: 0}, stopped = false;
+function update(state) {
+  status.textContent = `Native frame ${state.frame} / ${state.residents.reduce((sum, r) => sum + r.pending, 0)} pending / assets ${state.assets ? 'loaded' : 'placeholder'}`;
+  document.querySelector('#pause').setAttribute('aria-pressed', String(state.paused));
+  document.querySelector('#motion').setAttribute('aria-pressed', String(state.reduced_motion));
+  const resident = state.residents[state.selected];
+  document.querySelector('#read').disabled = !resident || !resident.pending || resident.kind === 'question';
+  document.querySelector('#details').disabled = !resident || !resident.pending;
+  for (const name of ['yes', 'no']) document.getElementById(name).disabled = !state.question_ready;
+}
+function send(event, keepalive = false) {
+  queue = queue.then(async () => {
+    const response = await fetch('/event', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(event), keepalive});
+    if (!response.ok) throw new Error(`Input rejected (${response.status})`);
+    update(await response.json());
+  }).catch(error => { status.textContent = error.message; });
+  return queue;
+}
+function point(event) {
+  const box = world.getBoundingClientRect();
+  return {x: Math.max(0, Math.min(465, Math.floor((event.clientX - box.left) * 466 / box.width))),
+          y: Math.max(0, Math.min(465, Math.floor((event.clientY - box.top) * 466 / box.height)))};
+}
+world.addEventListener('pointerdown', event => {
+  if (pointer !== null || event.button !== 0) return;
+  event.preventDefault(); pointer = event.pointerId; lastPoint = point(event);
+  world.setPointerCapture(pointer);
+  send({action: 'touch', pressed: true, ...lastPoint});
+});
+world.addEventListener('pointermove', event => {
+  if (event.pointerId !== pointer) return;
+  lastPoint = point(event); send({action: 'touch', pressed: true, ...lastPoint});
+});
+function release(event) {
+  if (pointer === null || (event && event.pointerId !== pointer)) return;
+  if (event && event.type === 'pointerup') lastPoint = point(event);
+  const id = pointer; pointer = null;
+  send({action: 'touch', pressed: false, ...lastPoint}, true);
+  if (world.hasPointerCapture(id)) world.releasePointerCapture(id);
+}
+for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) world.addEventListener(name, release);
+world.addEventListener('pointerleave', event => { if (!world.hasPointerCapture(event.pointerId)) release(event); });
+window.addEventListener('blur', () => release());
+for (const action of ['back', 'read', 'pause', 'motion', 'details']) document.getElementById(action).onclick = () => send({action});
+document.querySelector('#yes').onclick = () => send({action:'answer', yes:true});
+document.querySelector('#no').onclick = () => send({action:'answer', yes:false});
+document.querySelector('#notify').onclick = () => send({action: 'notify', name: document.querySelector('#resident').value, kind:document.querySelector('#kind').value});
+async function poll() {
+  if (stopped) return;
+  const started = performance.now();
+  if (!document.hidden) {
+    try {
+      const [response, state] = await Promise.all([fetch('/frame.png'), fetch('/state')]);
+      if (!response.ok) throw new Error('Native framebuffer unavailable');
+      const bitmap = await createImageBitmap(await response.blob());
+      context.drawImage(bitmap, 0, 0); bitmap.close();
+      if (!state.ok) throw new Error('Native status unavailable');
+      update(await state.json());
+    } catch (error) { status.textContent = error.message; }
+  }
+  if (!stopped) setTimeout(poll, Math.max(10, 50 - (performance.now() - started)));
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
+window.addEventListener('pagehide', () => { release(); stopped = true; });
+window.addEventListener('pageshow', event => { if (event.persisted) { stopped = false; poll(); } });
+poll();
+</script>
+</html>
