@@ -76,6 +76,174 @@ cover framing intentionally trims the panorama's horizontal extremes.
 
 ## Delivery phases
 
+### Monochrome portrait pilot
+
+The large-face branch can prepare externally supplied expression frames using
+the same 1-bit mask convention as the Hermes mascot. This is a monochrome trial,
+not the final selected portrait format: one foreground color can be selected at
+render time, and eyes/mouth remain negative space rather than a solid alpha
+silhouette. The subsequent colour study below retains more character detail.
+
+```bash
+python -m hermes_gadget.portraits --inputs /path/to/idle.png /path/to/blink.png /path/to/talk.png --out build/portrait-pilot --sequence idle blink idle talk idle talk
+```
+
+All input PNGs must share the same source canvas/registration. Conversion fits
+the entire canvas at 64, 96, 144 and 192 px without per-expression cropping.
+It writes transparent warm-white PNGs, packed row-padded MSB-first `.bin` masks,
+a manifest and a contact sheet on `#0D1D24`. `--sequence` optionally produces a
+visual GIF; it is not driven by agent states. The output directory must be new.
+Use `--threshold` to inspect how luminance separation preserves facial details;
+transparent source pixels never contribute ink.
+
+Three frames at those sizes use 26,592 bitmap bytes. Twelve use 106,368 bytes,
+excluding metadata. No generated artwork belongs in the public repository.
+The converter does not overwrite the shipped mascot. Per-profile mask loading,
+effect anchors and native state-driven rendering still need integration.
+Candidate roles are idle (rest), blink (periodic eye closure) and talk
+(alternating open/closed mouth). Additional drawn expressions can support a
+concerned visual state, but artwork alone does not establish an error/approval
+semantic or original animation timing. Verify the appearance before assigning
+any state; listening/thinking indicators can be native overlays as for Hermes.
+
+### Limited-colour portrait study
+
+The Gabumon visual study selects five flat colours (including the dark background)
+and selective one-pixel material seams, rather than the earlier luminance-only
+mask. Keep the source's warm skin, pale fur, blue stripes and eye distinct.
+All original and adapted character pixels, effect sprites and frame sprites
+remain external or in ignored `build/` previews. No new character artwork is
+licensed under this repository's MIT license.
+
+The animation study follows authored-keyframe techniques rather than pasting
+rectangular eye/mouth pieces from differently posed portraits. Complete supplied
+frames for neutral, squinted eyes, closed eyes, open mouth and open mouth with
+closed eyes share a padded canvas and horn registration anchor. The small
+changes in pose are retained; do not claim a perfectly stationary silhouette.
+Source pixels must not be lost when applying registration offsets.
+
+Later visual feedback selects stationary state bases for rest, thinking and
+listening instead of those whole-frame pose swaps. Rest and listening share a
+neutral base; thinking holds one squinted-eye base. Locally authored near/far
+eyelid masks produce open/half-closed/closed phases without changing the muzzle,
+horn, body, registration or source alpha. Validate all visible non-eye pixels
+over the decoded animation, not only the source portrait bank. Animate the frame
+behind the portrait so its corners cannot produce apparent motion by covering
+the body. Listening uses the two supplied musical-note sprites, registered with
+a common crop and recoloured to the portrait's gold. Speaking is not changed by
+this stationary-state revision and still needs a properly authored mouth set.
+
+Thinking uses the squinted-eye expression with a closed mouth, not merely the
+neutral portrait plus a status icon. Supplied speech/thinking effects use a
+common crop per sequence, a shared palette and the same integer pixel scale as
+the portrait. Frame corners are enlarged as glyphs instead of magnifying empty
+quadrants. Inspect expressions at native size and enlarged nearest-neighbour
+size before approving playback. Technical palette/position checks are not
+evidence that the anatomy looks right.
+
+The supplied art lacks a genuinely half-open mouth keyframe. Do not fabricate
+one by warping the muzzle or describe a two-mouth-frame loop as a three-frame
+animation. A half-open drawing on the same registered template remains pending.
+Preview timings and effect placements are design choices, not recovered game
+logic, measured speech synchronization, or an ESP32 runtime implementation.
+Earlier square mockups were not validated against circular panel clipping.
+The subsequent high-resolution-frame study now composes exactly 466x466 pixels
+inside a radius-232.5 panel mask. It removes the supplied frame's outer padding,
+fits its maximum visible radius, removes small noise components, and preserves
+the relief in three grayscale tones after downsampling. The avatar retains its
+limited colour palette. Effects are the final foreground layer, above the frame,
+with a black rim for contrast; their complete sequences stay inside the circle
+and clear of the avatar. Check the decoded GIFs for out-of-circle pixels,
+frame/avatar separation and non-eye motion, not only the initial screenshot.
+This is host-side visual evidence, not physical screen or firmware validation.
+Native state-driven portrait rendering remains a separate integration.
+
+The latest layout returns to the four original 128px frame pieces rather than
+the high-resolution relief frame. Their source canvases already overlap at the
+diagonals; separate them symmetrically along their cardinal directions before
+applying one common scale. Keep every original symbol pixel and validate all six
+piece-pair intersections. A thin circular track, split into disjoint quarter
+arcs, unifies the four sections around the panel centre without an elliptical
+stretch. In the zero-padding study, the centred 314x314 square is completely free
+of frame pixels and is occupied by the avatar canvas with zero added padding. Original
+transparent corners remain transparent; zero padding does not mean filling
+them or distorting the character. Foreground effects may obscure the frame,
+but not the avatar, and must remain inside the physical-circle mask.
+
+A separate speaking preview now uses this same square layout and the two
+supplied speech-effect sprites. Register the open-mouth donor to the neutral
+portrait's nose and limit changes to an explicitly selected lower-face mask;
+do not swap the whole head pose. Blink masks remain independent. Verify decoded
+frames outside both the mouth and eye masks for unintended motion. This is a
+two-mouth-state visual loop (closed/open), not a half-open drawing or real
+speech synchronization, and is still not integrated into the native core.
+
+The subsequent caption study intentionally reduces the avatar to 256x256 at
+`(105,88)` within the same four-piece frame, reserving a lower text band.
+It uses externally supplied Pixel Digivolve at 24px with a shared baseline of
+377. Idle shows `tap to speak`; the other visual labels are `Thinking`,
+`Listening`, `Speaking` and an optional `Processing` alias of thinking.
+Thinking/listening/processing offset each glyph vertically by an integer-rounded
+sine wave, with 4px amplitude, an 1800ms period and a per-character phase shift.
+Idle and speaking captions stay static. Keep glyph x positions fixed and measure
+the complete wave envelope against frame, avatar and panel masks.
+These labels are visual mockups: `tap to speak` does not implement a touch action,
+and `Processing` is not a new protocol state. Glyph parsing/rasterization remains
+host-side; 24px glyphs and caption state logic still need native integration.
+
+The isolated-caption revision replaces the continuous sine wave with isolated,
+sequential character pulses: one glyph uses offsets `0,-3,-6,-6,-3,0` over six
+60ms steps, then the next glyph takes its turn. At most one character moves;
+all others hold the shared baseline. Complete each word cycle before looping.
+Thinking/processing text and the thin circular track use the portrait's blue;
+idle/listening/speaking use its gold. The active character highlights in warm
+white, while the original frame glyphs remain white. This keeps accents coherent
+with the supplied effects without rainbow colours or additional artwork copies.
+Validate character positions in decoded GIFs as well as animation metadata.
+
+The later dynamic version uses a faster primary bounce with offsets
+`0,-8,-12,-6,2,0` at 40ms per step (240ms per character), including a small
+settling overshoot. A separated second character reacts with
+`0,0,0,-3,-6,-2`, staggered behind the primary jump. At most two characters move;
+the rest hold the baseline. Preserve the avatar/effect timing on its original
+60ms clock rather than accelerating it with the text. Both active glyphs use
+the warm-white highlight; state accents and static idle/speaking captions stay
+unchanged. Recheck the larger jump envelope against the avatar and frame.
+
+For further portrait work, follow the [animation pipeline plan](portrait-pipeline.md)
+instead of continuing per-character scratch scripts. The user selected the
+earlier `biyomon-caption-bounce` reference and rejected `biyomon-caption-fixed`;
+both snapshots remain available. Selection does not resolve the known eye/beak
+issues or constitute visual approval of the rejected correction.
+
+The Biyomon portrait pilot uses the same 466px composition, 256px avatar,
+Pixel Digivolve captions and two-character bounce timing. Its external 128px
+source frames are 510..521, paired left/right across six expressions. A separate
+pink/coral/blue/turquoise palette preserves plumage, beak and eyes instead of
+reusing Gabumon's colour classification. Author Biyomon-specific near/far eye
+masks; never reuse Gabumon's horn, iris or jaw geometry. The initial shifted
+beak-donor approach left mismatched contours. An attempted correction used traced bill
+layers: remove the old bill before drawing either the closed or open shape.
+Both bill halves use the same coral fill with black outline/cavity, without a
+second shaded bill or pink tongue. The far-eye mask must cover its whole white
+socket, not merely the few turquoise iris pixels. Check complete disappearance
+of white/blue eye pixels in both eye regions on closure, and verify that the
+open composite contains no remaining closed-bill fill beneath it.
+Pink accents serve idle/listening/speech;
+turquoise accents serve thinking/processing. Refit foreground effects against
+the crest and beak, and validate the decoded letter motion and non-expression
+pixels in both profiles. This remains asset/interaction preview work, not live
+profile switching, gateway integration or hardware evidence.
+
+References for techniques only; no code or artwork is copied from these projects:
+
+- [SLYNYRD: Intro to Animation](https://www.slynyrd.com/blog/2018/8/19/pixelblog-8-intro-to-animation): clear keyframes, coherent pixel clusters and deliberate frame duration.
+- [Fire Emblem portrait alignment discussion](https://feuniverse.us/t/smiling-frame-misalignment/4975/7): authored frames need a common grid; adjusting coordinates alone may not fix mismatched artwork.
+- [FE8 face implementation study](https://github.com/FireEmblemUniverse/fireemblem8u/blob/master/src/face.c): independently controlled mouth and blink sequences with explicit feature positions.
+- [Ren'Py layered images](https://www.renpy.org/doc/html/layeredimage.html): independently selectable expression groups; proper authored layers, not arbitrary donor-image patches.
+
+### Roadmap
+
 1. Native firmware UX skeleton: eight residents walking/resting, animated
    environment, tap selection and simulated pending notifications. The browser
    forwards touch and displays the simulator's 466x466 framebuffer. Reproducible
