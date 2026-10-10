@@ -35,3 +35,6 @@ assets/digivice-25th/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Orca runtime state (local agent tooling)
+.orca/
